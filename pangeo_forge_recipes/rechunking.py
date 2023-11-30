@@ -214,19 +214,19 @@ def combine_fragments(
             f"Expected a hypercube of shape {shape} but got {len(fragments)} fragments."
         )
 
-    starts_cube = [np.array(item[1]).reshape(shape) for item in dims_starts_sizes]
-    sizes_cube = [np.array(item[2]).reshape(shape) for item in dims_starts_sizes]
-    try:
-        # reversing order is necessary here because _sort_by_speed_of_varying puts the
-        # arrays into the opposite order as wanted by np.meshgrid
-        starts = _invert_meshgrid(*starts_cube[::-1])[::-1]
-        sizes = _invert_meshgrid(*sizes_cube[::-1])[::-1]
-    except AssertionError:
-        raise ValueError("Cannot combine fragments because they do not form a regular hypercube.")
+    # starts_cube = [np.array(item[1]).reshape(shape) for item in dims_starts_sizes]
+    # sizes_cube = [np.array(item[2]).reshape(shape) for item in dims_starts_sizes]
+    # try:
+    #    # reversing order is necessary here because _sort_by_speed_of_varying puts the
+    #    # arrays into the opposite order as wanted by np.meshgrid
+    #    starts = _invert_meshgrid(*starts_cube[::-1])[::-1]
+    #    sizes = _invert_meshgrid(*sizes_cube[::-1])[::-1]
+    # except AssertionError:
+    #    raise ValueError("Cannot combine fragments because they do not form a regular hypercube.")
 
-    expected_sizes = [np.diff(s) for s in starts]
-    if not all(np.equal(s[:-1], es).all() for s, es in zip(sizes, expected_sizes)):
-        raise ValueError(f"Dataset {sizes} and index starts {starts} are not consistent.")
+    # expected_sizes = [np.diff(s) for s in starts]
+    # if not all(np.equal(s[:-1], es).all() for s, es in zip(sizes, expected_sizes)):
+    #    raise ValueError(f"Dataset {sizes} and index starts {starts} are not consistent.")
 
     # some tricky workarounds to put xarray datasets into a nested list
     all_datasets = np.empty(shape, dtype="O").ravel()
