@@ -570,3 +570,64 @@ class StoreToZarr(beam.PTransform, ZarrWriterMixin):
         # consolidate metadata and/or coordinate dims here
 
         return singleton_target_store
+
+
+@dataclass
+class StoreZarrCoords(beam.PTransform, ZarrWriterMixin):
+    """Store a PCollection of Xarray datasets to Zarr.
+
+    :param combine_dims: The dimensions to combine
+    :param store_name: Name for the Zarr store. It will be created with
+        this name under `target_root`.
+    :param target_root: Root path the Zarr store will be created inside;
+        `store_name` will be appended to this prefix to create a full path.
+    :param target_chunks: Dictionary mapping dimension names to chunks sizes.
+      If a dimension is a not named, the chunks will be inferred from the data.
+    :param dynamic_chunking_fn: Optionally provide a function that takes an ``xarray.Dataset``
+      template dataset as its first argument and returns a dynamically generated chunking dict.
+      If provided, ``target_chunks`` cannot also be passed. You can use this to determine chunking
+      based on the full dataset (e.g. divide along a certain dimension based on a desired chunk
+      size in memory). For more advanced chunking strategies, check
+      out https://github.com/jbusecke/dynamic_chunks
+    :param dynamic_chunking_fn_kwargs: Optional keyword arguments for ``dynamic_chunking_fn``.
+    :param attrs: Extra group-level attributes to inject into the dataset.
+    """
+
+    # TODO: make it so we don't have to explicitly specify combine_dims
+    # Could be inferred from the pattern instead
+    combine_dims: List[Dimension]
+    store_name: str
+    target_root: Union[str, FSSpecTarget, RequiredAtRuntimeDefault] = field(
+        default_factory=RequiredAtRuntimeDefault
+    )
+    target_chunks: Dict[str, int] = field(default_factory=dict)
+    dynamic_chunking_fn: Optional[Callable[[xr.Dataset], dict]] = None
+    dynamic_chunking_fn_kwargs: Optional[dict] = field(default_factory=dict)
+    attrs: Dict[str, str] = field(default_factory=dict)
+    store_mode: str = "w"
+
+    def __post_init__(self):
+        if self.target_chunks and self.dynamic_chunking_fn:
+            raise ValueError("Passing both `target_chunks` and `dynamic_chunking_fn` not allowed.")
+
+    def expand(
+        self,
+        datasets: beam.PCollection[Tuple[Index, xr.Dataset]],
+    ) -> beam.PCollection[zarr.storage.FSStore]:
+        schema = datasets | DetermineSchema(combine_dims=self.combine_dims)
+        target_chunks = (
+            self.target_chunks
+            if not self.dynamic_chunking_fn
+            else beam.pvalue.AsSingleton(
+                schema
+                | beam.Map(schema_to_template_ds)
+                | beam.Map(self.dynamic_chunking_fn, **self.dynamic_chunking_fn_kwargs)
+            )
+        )
+        target_store = schema | PrepareZarrTarget(
+            target=self.get_full_target(),
+            target_chunks=target_chunks,
+            attrs=self.attrs,
+            store_mode=self.store_mode,
+        )
+        return target_store
