@@ -30,7 +30,8 @@ def dataset_to_schema(ds: xr.Dataset) -> XarraySchema:
 
     # Remove redundant encoding options
     for v in ds.variables:
-        for option in ["_FillValue", "source"]:
+        # for option in ["_FillValue", "source"]:
+        for option in ["source"]:
             # TODO: should be okay to remove _FillValue?
             if option in ds[v].encoding:
                 del ds[v].encoding[option]
