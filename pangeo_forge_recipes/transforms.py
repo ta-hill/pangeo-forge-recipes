@@ -607,7 +607,7 @@ class StoreToZarr(beam.PTransform, ZarrWriterMixin):
     def expand(
         self,
         datasets: beam.PCollection[Tuple[Index, xr.Dataset]],
-    ) -> beam.PCollection[zarr.storage.FSStore]:
+    ) -> beam.PCollection:
         schema = datasets | DetermineSchema(combine_dims=self.combine_dims)
         indexed_datasets = datasets | IndexItems(schema=schema)
         target_chunks = (
@@ -626,13 +626,17 @@ class StoreToZarr(beam.PTransform, ZarrWriterMixin):
             attrs=self.attrs,
             store_mode=self.store_mode,
         )
-        n_target_stores = rechunked_datasets | StoreDatasetFragments(target_store=target_store)
-        singleton_target_store = (
-            n_target_stores
-            | beam.combiners.Sample.FixedSizeGlobally(1)
-            | beam.FlatMap(lambda x: x)  # https://stackoverflow.com/a/47146582
+        n_target_stores = (
+            rechunked_datasets
+            | StoreDatasetFragments(target_store=target_store)
+            | beam.combiners.Count.Globally()
         )
+        # singleton_target_store = (
+        #    n_target_stores
+        #    | beam.combiners.Sample.FixedSizeGlobally(1)
+        #    | beam.FlatMap(lambda x: x)  # https://stackoverflow.com/a/47146582
+        # )
         # TODO: optionally use `singleton_target_store` to
         # consolidate metadata and/or coordinate dims here
 
-        return singleton_target_store
+        return n_target_stores
