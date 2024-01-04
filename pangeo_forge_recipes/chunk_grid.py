@@ -26,7 +26,7 @@ class ChunkGrid:
         self._chunk_axes = {name: ChunkAxis(axis_chunks) for name, axis_chunks in chunks.items()}
 
     def __eq__(self, other):
-        if self.dims != other.dims:
+        if self.sizes != other.sizes:
             return False
         for name in self._chunk_axes:
             if self._chunk_axes[name] != other._chunk_axes[name]:
