@@ -17,13 +17,14 @@ logger = logging.getLogger(__name__)
 # the ints are chunk indexes
 # code should aways sort the key before emitting it
 GroupKey = Tuple[Tuple[str, int], ...]
+GroupCode = str
 
 
 def split_fragment(
     fragment: Tuple[Index, xr.Dataset],
     target_chunks: Optional[Dict[str, int]] = None,
     schema: Optional[XarraySchema] = None,
-) -> Iterator[Tuple[GroupKey, Tuple[Index, xr.Dataset]]]:
+) -> Iterator[Tuple[GroupCode, Tuple[Index, xr.Dataset]]]:
     """Split a single indexed dataset fragment into sub-fragments, according to the
     specified target chunks
 
@@ -123,7 +124,7 @@ def split_fragment(
         yield (
             # append the `merge_dim_positions` to the target_chunk_group before returning,
             # to ensure correct grouping of merge dims. e.g., `(("time", 0), ("variable", 0))`.
-            tuple(sorted(target_chunk_group) + merge_dim_positions),
+            str(tuple(sorted(target_chunk_group) + merge_dim_positions)),
             (sub_fragment_index, sub_fragment_ds),
         )
 
@@ -152,7 +153,7 @@ def _invert_meshgrid(*arrays):
 
 # TODO: figure out a type hint that beam likes
 def combine_fragments(
-    group: GroupKey, fragments: List[Tuple[Index, xr.Dataset]]
+    group: GroupCode, fragments: List[Tuple[Index, xr.Dataset]]
 ) -> Tuple[Index, xr.Dataset]:
     """Combine multiple dataset fragments into a single fragment.
 
