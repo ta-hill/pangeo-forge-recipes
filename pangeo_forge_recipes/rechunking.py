@@ -17,14 +17,14 @@ logger = logging.getLogger(__name__)
 # the ints are chunk indexes
 # code should aways sort the key before emitting it
 GroupKey = Tuple[Tuple[str, int], ...]
-GroupCode = str
+# GroupCode = str
 
 
 def split_fragment(
     fragment: Tuple[Index, xr.Dataset],
     target_chunks: Optional[Dict[str, int]] = None,
     schema: Optional[XarraySchema] = None,
-) -> Iterator[Tuple[GroupCode, Tuple[Index, xr.Dataset]]]:
+) -> Iterator[Tuple[GroupKey, Tuple[Index, xr.Dataset]]]:
     """Split a single indexed dataset fragment into sub-fragments, according to the
     specified target chunks
 
@@ -57,7 +57,7 @@ def split_fragment(
             dimsize = getattr(index[concat_dim], "dimsize", 0)
             concat_position = index[concat_dim]
             start = concat_position.value
-            stop = start + ds.dims[dim_name]
+            stop = start + ds.sizes[dim_name]
             dim_slice = slice(start, stop)
             rechunked_concat_dims.append(concat_dim)
         else:
@@ -65,7 +65,7 @@ def split_fragment(
             # in the fragment index, then we can assume that the entire span of
             # that dimension is present in the dataset.
             # This would arise e.g. when decimating a contiguous dimension
-            dimsize = ds.dims[dim_name]
+            dimsize = ds.sizes[dim_name]
             dim_slice = slice(0, dimsize)
 
         target_chunks_and_dims[dim_name] = (chunk, dimsize)
@@ -124,7 +124,7 @@ def split_fragment(
         yield (
             # append the `merge_dim_positions` to the target_chunk_group before returning,
             # to ensure correct grouping of merge dims. e.g., `(("time", 0), ("variable", 0))`.
-            str(tuple(sorted(target_chunk_group) + merge_dim_positions)),
+            tuple(sorted(target_chunk_group) + merge_dim_positions),
             (sub_fragment_index, sub_fragment_ds),
         )
 
@@ -153,7 +153,7 @@ def _invert_meshgrid(*arrays):
 
 # TODO: figure out a type hint that beam likes
 def combine_fragments(
-    group: GroupCode, fragments: List[Tuple[Index, xr.Dataset]]
+    group: GroupKey, fragments: List[Tuple[Index, xr.Dataset]]
 ) -> Tuple[Index, xr.Dataset]:
     """Combine multiple dataset fragments into a single fragment.
 
@@ -194,7 +194,7 @@ def combine_fragments(
         (
             dim.name,
             [index[dim].value for index in all_indexes],
-            [ds.dims[dim.name] for ds in all_dsets],
+            [ds.sizes[dim.name] for ds in all_dsets],
         )
         for dim in concat_dims
     ]

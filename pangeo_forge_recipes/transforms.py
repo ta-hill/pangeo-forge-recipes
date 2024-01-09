@@ -404,7 +404,7 @@ class Rechunk(beam.PTransform):
     schema: beam.PCollection
 
     def expand(self, pcoll: beam.PCollection) -> beam.PCollection:
-        return (
+        new_fragments = (
             pcoll
             | beam.FlatMap(
                 split_fragment,
@@ -414,7 +414,7 @@ class Rechunk(beam.PTransform):
             | beam.GroupByKey()  # this has major performance implication
             | beam.MapTuple(combine_fragments)
         )
-        # return new_fragments
+        return new_fragments
 
 
 @dataclass
