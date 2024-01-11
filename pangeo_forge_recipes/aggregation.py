@@ -30,7 +30,7 @@ def dataset_to_schema(ds: xr.Dataset) -> XarraySchema:
 
     # Remove redundant encoding options
     for v in ds.variables:
-        for option in ["_FillValue", "source"]:
+        for option in ["source"]:
             # TODO: should be okay to remove _FillValue?
             if option in ds[v].encoding:
                 del ds[v].encoding[option]
@@ -278,9 +278,10 @@ def schema_to_zarr(
     target_store: zarr.storage.FSStore,
     target_chunks: Optional[Dict[str, int]] = None,
     attrs: Optional[Dict[str, str]] = None,
+    store_mode: str = "w",
 ) -> zarr.storage.FSStore:
     """Initialize a zarr group based on a schema."""
     ds = schema_to_template_ds(schema, specified_chunks=target_chunks, attrs=attrs)
     # using mode="w" makes this function idempotent
-    ds.to_zarr(target_store, mode="w", compute=False)
+    ds.to_zarr(target_store, mode=store_mode, compute=False)
     return target_store
