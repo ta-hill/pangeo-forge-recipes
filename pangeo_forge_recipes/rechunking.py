@@ -236,5 +236,9 @@ def combine_fragments(
     dsets_to_concat = all_datasets.reshape(shape).tolist()
     concat_dims_sorted = [item[0] for item in dims_starts_sizes]
     ds_combined = xr.combine_nested(dsets_to_concat, concat_dim=concat_dims_sorted)
+    logger.info(
+        f"{group = } Finished combining {len(fragments)} \
+            fragments with concat dims: {concat_dims_sorted}"
+    )
 
     return first_index, ds_combined

@@ -1,3 +1,4 @@
+import logging
 import os
 from typing import Dict, List, MutableMapping, Optional, Protocol, Tuple, Union
 
@@ -10,6 +11,8 @@ from kerchunk.combine import MultiZarrToZarr
 
 from .patterns import CombineOp, Index
 from .storage import FSSpecTarget
+
+logger = logging.getLogger(__name__)
 
 
 def _region_for(var: xr.Variable, index: Index) -> Tuple[slice, ...]:
@@ -49,6 +52,7 @@ def _store_data(vname: str, var: xr.Variable, index: Index, zgroup: zarr.Group) 
             raise ValueError(
                 f"Region {region} does not align with Zarr chunks {zarr_array.chunks}."
             )
+    logger.info(f"Storing data for {vname = } with {index = } and shape ={data.shape}")
     zarr_array[region] = data
 
 
