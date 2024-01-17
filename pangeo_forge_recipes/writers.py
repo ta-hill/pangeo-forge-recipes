@@ -52,7 +52,9 @@ def _store_data(vname: str, var: xr.Variable, index: Index, zgroup: zarr.Group) 
             raise ValueError(
                 f"Region {region} does not align with Zarr chunks {zarr_array.chunks}."
             )
-    logger.info(f"Storing data for {vname = } with {index = } and shape ={data.shape}")
+    logger.info(
+        f"Storing data for {vname = } with {index = } region = {region} and shape = {data.shape}"
+    )
     zarr_array[region] = data
 
 

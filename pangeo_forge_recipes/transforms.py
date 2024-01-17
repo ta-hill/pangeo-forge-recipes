@@ -401,20 +401,19 @@ class StoreDatasetFragments(beam.PTransform):
 @dataclass
 class Rechunk(beam.PTransform):
     target_chunks: Optional[Dict[str, int]]
-    schema: beam.PCollection
+    # schema: beam.PCollection
 
     def expand(self, pcoll: beam.PCollection) -> beam.PCollection:
-        new_fragments = (
+        return (
             pcoll
             | beam.FlatMap(
                 split_fragment,
                 target_chunks=self.target_chunks,
-                schema=beam.pvalue.AsSingleton(self.schema),
+                # schema=beam.pvalue.AsSingleton(self.schema),
             )
             | beam.GroupByKey()  # this has major performance implication
             | beam.MapTuple(combine_fragments)
         )
-        return new_fragments
 
 
 @dataclass
@@ -607,9 +606,9 @@ class StoreToZarr(beam.PTransform, ZarrWriterMixin):
     def expand(
         self,
         datasets: beam.PCollection[Tuple[Index, xr.Dataset]],
-    ) -> beam.PCollection[zarr.storage.FSStore]:
+    ) -> None:  # beam.PCollection[zarr.storage.FSStore]:
         schema = datasets | DetermineSchema(combine_dims=self.combine_dims)
-        indexed_datasets = datasets | IndexItems(schema=schema)
+        # indexed_datasets = datasets | IndexItems(schema=schema)
         target_chunks = (
             self.target_chunks
             if not self.dynamic_chunking_fn
@@ -619,20 +618,12 @@ class StoreToZarr(beam.PTransform, ZarrWriterMixin):
                 | beam.Map(self.dynamic_chunking_fn, **self.dynamic_chunking_fn_kwargs)
             )
         )
-        rechunked_datasets = indexed_datasets | Rechunk(target_chunks=target_chunks, schema=schema)
         target_store = schema | PrepareZarrTarget(
             target=self.get_full_target(),
             target_chunks=target_chunks,
             attrs=self.attrs,
             store_mode=self.store_mode,
         )
-        n_target_stores = rechunked_datasets | StoreDatasetFragments(target_store=target_store)
-        singleton_target_store = (
-            n_target_stores
-            | beam.combiners.Sample.FixedSizeGlobally(1)
-            | beam.FlatMap(lambda x: x)  # https://stackoverflow.com/a/47146582
-        )
-        # TODO: optionally use `singleton_target_store` to
-        # consolidate metadata and/or coordinate dims here
-
-        return singleton_target_store
+        datasets | IndexItems(schema=schema) | Rechunk(
+            target_chunks=target_chunks
+        ) | StoreDatasetFragments(target_store=target_store)

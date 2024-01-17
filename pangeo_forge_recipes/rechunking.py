@@ -22,7 +22,7 @@ GroupKey = Tuple[Tuple[str, int], ...]
 def split_fragment(
     fragment: Tuple[Index, xr.Dataset],
     target_chunks: Optional[Dict[str, int]] = None,
-    schema: Optional[XarraySchema] = None,
+    schema: Optional[Dict] = None,
 ) -> Iterator[Tuple[GroupKey, Tuple[Index, xr.Dataset]]]:
     """Split a single indexed dataset fragment into sub-fragments, according to the
     specified target chunks
@@ -37,7 +37,18 @@ def split_fragment(
         raise ValueError("Must specify either target_chunks or schema (or both).")
     if schema is not None:
         # we don't want to include the dims that are not getting rechunked
-        target_chunks = determine_target_chunks(schema, target_chunks, include_all_dims=False)
+        d = schema
+        target_chunks = determine_target_chunks(
+            XarraySchema(
+                attrs=d.get("attrs", {}),
+                coords=d.get("coords", {}),
+                data_vars=d.get("data_vars", {}),
+                dims=d.get("dims", {}),
+                chunks=d.get("chunks", {}),
+            ),
+            target_chunks,
+            include_all_dims=False,
+        )
     else:
         assert target_chunks is not None
 
@@ -237,7 +248,7 @@ def combine_fragments(
     concat_dims_sorted = [item[0] for item in dims_starts_sizes]
     ds_combined = xr.combine_nested(dsets_to_concat, concat_dim=concat_dims_sorted)
     logger.info(
-        f"{group = } Finished combining {len(fragments)} "
+        f"Group {group} Finished combining {len(fragments)} "
         + f"fragments with concat dims: {concat_dims_sorted}"
     )
 
