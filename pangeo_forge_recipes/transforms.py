@@ -23,6 +23,7 @@ from .openers import open_url, open_with_kerchunk, open_with_xarray
 from .patterns import CombineOp, Dimension, FileType, Index, augment_index_with_start_stop
 from .rechunking import combine_fragments, split_fragment
 from .storage import CacheFSSpecTarget, FSSpecTarget
+from .types import CodedGroupItem, CodedGroupItemCoder, CodedGroupKey
 from .writers import ZarrWriterMixin, store_dataset_fragment, write_combined_reference
 
 logger = logging.getLogger(__name__)
@@ -67,6 +68,8 @@ R = TypeVar("R")
 IndexedReturn = Tuple[Index, R]
 
 P = ParamSpec("P")
+
+beam.coders.registry.register_coder(CodedGroupItem, CodedGroupItemCoder)
 
 
 class RequiredAtRuntimeDefault:
@@ -343,7 +346,9 @@ class IndexItems(beam.PTransform):
             new_index[dimkey] = dimval
         return new_index, ds
 
-    def expand(self, pcoll: beam.PCollection):
+    def expand(
+        self, pcoll: beam.PCollection[Tuple[Index, xr.Dataset]]
+    ) -> beam.PCollection[Indexed[T]]:
         return pcoll | beam.Map(self.index_item, schema=beam.pvalue.AsSingleton(self.schema))
 
 
@@ -403,7 +408,9 @@ class Rechunk(beam.PTransform):
     target_chunks: Optional[Dict[str, int]]
     schema: beam.PCollection
 
-    def expand(self, pcoll: beam.PCollection) -> beam.PCollection:
+    def expand(
+        self, pcoll: beam.PCollection[Indexed[T]]
+    ) -> beam.PCollection[Tuple[Index, xr.Dataset]]:
         new_fragments = (
             pcoll
             | beam.FlatMap(
@@ -412,6 +419,23 @@ class Rechunk(beam.PTransform):
                 schema=beam.pvalue.AsSingleton(self.schema),
             )
             | beam.GroupByKey()  # this has major performance implication
+            | beam.MapTuple(combine_fragments)
+        )
+        return new_fragments
+
+
+@dataclass
+class NoSchemaRechunk(beam.PTransform):
+    target_chunks: Optional[Dict[str, int]]
+    # schema: beam.PCollection
+
+    def expand(self, pcoll: beam.PCollection) -> beam.PCollection:
+        new_fragments = (
+            pcoll
+            | beam.FlatMap(split_fragment, target_chunks=self.target_chunks, schema=None)
+            | beam.GroupByKey().with_input_types(
+                Tuple[CodedGroupKey, Tuple[Index, xr.Dataset]]
+            )  # this has major performance implication
             | beam.MapTuple(combine_fragments)
         )
         return new_fragments
@@ -598,7 +622,8 @@ class StoreToZarr(beam.PTransform, ZarrWriterMixin):
     dynamic_chunking_fn: Optional[Callable[[xr.Dataset], dict]] = None
     dynamic_chunking_fn_kwargs: Optional[dict] = field(default_factory=dict)
     attrs: Dict[str, str] = field(default_factory=dict)
-    store_mode: str = "w"
+    store_mode: str = str("w")
+    rechunk_use_schema: bool = True
 
     def __post_init__(self):
         if self.target_chunks and self.dynamic_chunking_fn:
@@ -607,7 +632,7 @@ class StoreToZarr(beam.PTransform, ZarrWriterMixin):
     def expand(
         self,
         datasets: beam.PCollection[Tuple[Index, xr.Dataset]],
-    ) -> beam.PCollection[zarr.storage.FSStore]:
+    ) -> None:  # beam.PCollection[zarr.storage.FSStore]:
         schema = datasets | DetermineSchema(combine_dims=self.combine_dims)
         indexed_datasets = datasets | IndexItems(schema=schema)
         target_chunks = (
@@ -619,20 +644,27 @@ class StoreToZarr(beam.PTransform, ZarrWriterMixin):
                 | beam.Map(self.dynamic_chunking_fn, **self.dynamic_chunking_fn_kwargs)
             )
         )
-        rechunked_datasets = indexed_datasets | Rechunk(target_chunks=target_chunks, schema=schema)
+        if self.rechunk_use_schema:
+            rechunked_datasets = indexed_datasets | Rechunk(
+                target_chunks=target_chunks, schema=schema
+            )
+        else:
+            rechunked_datasets = indexed_datasets | NoSchemaRechunk(target_chunks=target_chunks)
+
         target_store = schema | PrepareZarrTarget(
             target=self.get_full_target(),
             target_chunks=target_chunks,
             attrs=self.attrs,
             store_mode=self.store_mode,
         )
-        n_target_stores = rechunked_datasets | StoreDatasetFragments(target_store=target_store)
-        singleton_target_store = (
-            n_target_stores
-            | beam.combiners.Sample.FixedSizeGlobally(1)
-            | beam.FlatMap(lambda x: x)  # https://stackoverflow.com/a/47146582
-        )
-        # TODO: optionally use `singleton_target_store` to
-        # consolidate metadata and/or coordinate dims here
+        (rechunked_datasets | StoreDatasetFragments(target_store=target_store))
+        return
+        # singleton_target_store = (
+        #    n_target_stores
+        #    | beam.combiners.Sample.FixedSizeGlobally(1)
+        #    | beam.FlatMap(lambda x: x)  # https://stackoverflow.com/a/47146582
+        # )
+        # #TODO: optionally use `singleton_target_store` to
+        # #consolidate metadata and/or coordinate dims here
 
-        return singleton_target_store
+        # return singleton_target_store

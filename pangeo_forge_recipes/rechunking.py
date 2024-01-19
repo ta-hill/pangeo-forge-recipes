@@ -2,14 +2,22 @@ import functools
 import itertools
 import logging
 import operator
-from typing import Dict, Iterator, List, Tuple
+from typing import Dict, Iterable, List, Tuple
 
 import numpy as np
 import xarray as xr
 
 from .aggregation import XarraySchema, determine_target_chunks
 from .chunk_grid import ChunkGrid
-from .types import CombineOp, Dimension, Index, IndexedPosition, Optional
+from .types import (
+    CodedGroupItem,
+    CodedGroupKey,
+    CombineOp,
+    Dimension,
+    Index,
+    IndexedPosition,
+    Optional,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -22,8 +30,8 @@ GroupKey = Tuple[Tuple[str, int], ...]
 def split_fragment(
     fragment: Tuple[Index, xr.Dataset],
     target_chunks: Optional[Dict[str, int]] = None,
-    schema: Optional[XarraySchema] = None,
-) -> Iterator[Tuple[GroupKey, Tuple[Index, xr.Dataset]]]:
+    schema: Optional[Dict] = None,
+) -> Iterable[Tuple[CodedGroupKey, Tuple[Index, xr.Dataset]]]:
     """Split a single indexed dataset fragment into sub-fragments, according to the
     specified target chunks
 
@@ -37,7 +45,18 @@ def split_fragment(
         raise ValueError("Must specify either target_chunks or schema (or both).")
     if schema is not None:
         # we don't want to include the dims that are not getting rechunked
-        target_chunks = determine_target_chunks(schema, target_chunks, include_all_dims=False)
+        d = schema
+        target_chunks = determine_target_chunks(
+            XarraySchema(
+                attrs=d.get("attrs", {}),
+                coords=d.get("coords", {}),
+                data_vars=d.get("data_vars", {}),
+                dims=d.get("dims", {}),
+                chunks=d.get("chunks", {}),
+            ),
+            target_chunks,
+            include_all_dims=False,
+        )
     else:
         assert target_chunks is not None
 
@@ -83,7 +102,7 @@ def split_fragment(
     # a tuple of tuples of the form (("lat", 1), ("time", 0))
     all_chunks = itertools.product(
         *(
-            [(dim, n) for n in range(chunk_slice.start, chunk_slice.stop)]
+            [(str(dim), int(n)) for n in range(chunk_slice.start, chunk_slice.stop)]
             for dim, chunk_slice in target_chunk_slices.items()
         )
     )
@@ -119,13 +138,23 @@ def split_fragment(
                 start, dimsize=target_chunks_and_dims[dim][1]
             )
         sub_fragment_ds = ds.isel(**sub_fragment_indexer)
+        cat_chunk_group = [
+            CodedGroupItem.from_literal(name, val) for name, val in target_chunk_group
+        ]
+        merge_chunk_group = None
+        if len(merge_dim_positions) > 0:
+            merge_chunk_group = [
+                CodedGroupItem.from_literal(name, val) for name, val in merge_dim_positions
+            ]
 
-        yield (
-            # append the `merge_dim_positions` to the target_chunk_group before returning,
-            # to ensure correct grouping of merge dims. e.g., `(("time", 0), ("variable", 0))`.
-            tuple(sorted(target_chunk_group) + merge_dim_positions),
-            (sub_fragment_index, sub_fragment_ds),
-        )
+        new_coded_group_key = tuple(sorted(cat_chunk_group))
+        if merge_chunk_group is not None:
+            new_coded_group_key += tuple(merge_chunk_group)
+
+        # append the `merge_dim_positions` to the target_chunk_group before returning,
+        # to ensure correct grouping of merge dims. e.g., `(("time", 0), ("variable", 0))`.
+        # tuple(sorted(target_chunk_group) + merge_dim_positions),
+        yield new_coded_group_key, (sub_fragment_index, sub_fragment_ds)
 
 
 def _sort_index_key(item):
@@ -152,7 +181,7 @@ def _invert_meshgrid(*arrays):
 
 # TODO: figure out a type hint that beam likes
 def combine_fragments(
-    group: GroupKey, fragments: List[Tuple[Index, xr.Dataset]]
+    group: CodedGroupKey, fragments: List[Tuple[Index, xr.Dataset]]
 ) -> Tuple[Index, xr.Dataset]:
     """Combine multiple dataset fragments into a single fragment.
 
@@ -237,7 +266,7 @@ def combine_fragments(
     concat_dims_sorted = [item[0] for item in dims_starts_sizes]
     ds_combined = xr.combine_nested(dsets_to_concat, concat_dim=concat_dims_sorted)
     logger.info(
-        f"{group = } Finished combining {len(fragments)} "
+        f"Group {group} Finished combining {len(fragments)} "
         + f"fragments with concat dims: {concat_dims_sorted}"
     )
 

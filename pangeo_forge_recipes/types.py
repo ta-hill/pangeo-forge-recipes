@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, Optional
+from typing import Dict, NamedTuple, Optional, Tuple
+
+from apache_beam.coders import Coder
 
 
 class CombineOp(Enum):
@@ -72,3 +74,34 @@ class Index(Dict[Dimension, Position]):
             return None
         else:
             return possible_concat_dims[0]
+
+
+class CodedGroupItem(NamedTuple):
+    name: str
+    val: int
+
+    @classmethod
+    def from_literal(cls, s_name, i_val):
+        name = str(s_name.encode("utf-8"), encoding="utf-8").upper()
+        val = int(bin(i_val), base=0)
+        return cls(name, val)
+
+    @classmethod
+    def from_strings(cls, s_name, s_val):
+        name = str(s_name.encode("utf-8"), encoding="utf-8").upper()
+        val = int(bin(int(s_val)), base=0)
+        return cls(name, val)
+
+
+class CodedGroupItemCoder(Coder):
+    def encode(self, group):
+        return ("%s:%d" % (group.name, group.val)).encode("utf-8")
+
+    def decode(self, s):
+        return CodedGroupItem.from_strings(*s.decode("utf-8").split(":"))
+
+    def is_deterministic(self):
+        return True
+
+
+CodedGroupKey = Tuple[CodedGroupItem, ...]

@@ -52,7 +52,9 @@ def _store_data(vname: str, var: xr.Variable, index: Index, zgroup: zarr.Group) 
             raise ValueError(
                 f"Region {region} does not align with Zarr chunks {zarr_array.chunks}."
             )
-    logger.info(f"Storing data for {vname = } with {index = } and shape ={data.shape}")
+    logger.info(
+        f"Storing data for {vname = } with {index = } ,shape = {data.shape} ,region = {region} "
+    )
     zarr_array[region] = data
 
 
@@ -61,6 +63,27 @@ def _is_first_item(index):
         if v.value > 0:
             return False
     return True
+
+
+# Possible check that returns false if no dims are merge dims
+# def _is_first_in_merge_dim(index):
+#    # added a check for returning false if no merge dim found
+#    found_merge_dim=False
+#    for k, v in index.items():
+#        if k.operation == CombineOp.MERGE:
+#            if not found_merge_dim:
+#                # if we haven't already found a merge dim yet, well now we have
+#                found_merge_dim = True
+#            if v.value > 0:
+#                return False
+#
+#    if found_merge_dim:
+#        # If we DID find any merge dims and still got here,
+#        # then this index must be first in that dim
+#        return True
+#    else:
+#        # If we did NOT find any merge dims, we should return false
+#        return False
 
 
 def _is_first_in_merge_dim(index):
@@ -86,7 +109,7 @@ def store_dataset_fragment(
     # TODO: check that the dataset and the index are compatible
 
     # only store coords if this is the first item in a merge dim
-    if _is_first_in_merge_dim(index):
+    if (_is_first_in_merge_dim(index)) and (len(ds.coords) > 0):
         for vname, da in ds.coords.items():
             # if this variable contains a concat dim, we always store it
             possible_concat_dims = [index.find_concat_dim(dim) for dim in da.dims]
