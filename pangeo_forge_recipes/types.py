@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, NamedTuple, Optional, Tuple
+from typing import Dict, NamedTuple, Optional
 
 from apache_beam.coders import Coder
 
@@ -94,8 +94,10 @@ class CodedGroupItem(NamedTuple):
 
 
 class CodedGroupItemCoder(Coder):
-    def encode(self, group):
+    def encode(self, group) -> bytes:
         return ("%s:%d" % (group.name, group.val)).encode("utf-8")
+
+    func_encode = classmethod(encode)
 
     def decode(self, s):
         return CodedGroupItem.from_strings(*s.decode("utf-8").split(":"))
@@ -103,5 +105,10 @@ class CodedGroupItemCoder(Coder):
     def is_deterministic(self):
         return True
 
+    def chain_encode(self, groups) -> bytes:
+        return "&&".encode("utf-8").join(self.func_encode(g) for g in groups)
 
-CodedGroupKey = Tuple[CodedGroupItem, ...]
+    func_chain_encode = classmethod(chain_encode)
+
+
+CodedGroupKey = bytes  # Tuple[CodedGroupItem, ...]

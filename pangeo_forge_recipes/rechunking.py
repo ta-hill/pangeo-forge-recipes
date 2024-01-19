@@ -2,7 +2,7 @@ import functools
 import itertools
 import logging
 import operator
-from typing import Dict, Iterable, List, Tuple
+from typing import Dict, Iterator, List, Tuple
 
 import numpy as np
 import xarray as xr
@@ -11,6 +11,7 @@ from .aggregation import XarraySchema, determine_target_chunks
 from .chunk_grid import ChunkGrid
 from .types import (
     CodedGroupItem,
+    CodedGroupItemCoder,
     CodedGroupKey,
     CombineOp,
     Dimension,
@@ -31,7 +32,7 @@ def split_fragment(
     fragment: Tuple[Index, xr.Dataset],
     target_chunks: Optional[Dict[str, int]] = None,
     schema: Optional[Dict] = None,
-) -> Iterable[Tuple[CodedGroupKey, Tuple[Index, xr.Dataset]]]:
+) -> Iterator[Tuple[CodedGroupKey, Tuple[Index, xr.Dataset]]]:
     """Split a single indexed dataset fragment into sub-fragments, according to the
     specified target chunks
 
@@ -151,10 +152,12 @@ def split_fragment(
         if merge_chunk_group is not None:
             new_coded_group_key += tuple(merge_chunk_group)
 
+        bytes_new_coded_group_key = CodedGroupItemCoder().chain_encode(new_coded_group_key)
+
         # append the `merge_dim_positions` to the target_chunk_group before returning,
         # to ensure correct grouping of merge dims. e.g., `(("time", 0), ("variable", 0))`.
         # tuple(sorted(target_chunk_group) + merge_dim_positions),
-        yield new_coded_group_key, (sub_fragment_index, sub_fragment_ds)
+        yield bytes_new_coded_group_key, (sub_fragment_index, sub_fragment_ds)
 
 
 def _sort_index_key(item):
@@ -266,7 +269,7 @@ def combine_fragments(
     concat_dims_sorted = [item[0] for item in dims_starts_sizes]
     ds_combined = xr.combine_nested(dsets_to_concat, concat_dim=concat_dims_sorted)
     logger.info(
-        f"Group {group} Finished combining {len(fragments)} "
+        f"Group {group!r} Finished combining {len(fragments)} "
         + f"fragments with concat dims: {concat_dims_sorted}"
     )
 

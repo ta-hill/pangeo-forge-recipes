@@ -263,14 +263,14 @@ class OpenWithXarray(beam.PTransform):
     copy_to_local: bool = False
     xarray_open_kwargs: Optional[dict] = field(default_factory=dict)
 
-    def expand(self, pcoll):
+    def expand(self, pcoll: beam.PCollection[Index, str]) -> beam.PCollection[Index, xr.Dataset]:
         return pcoll | "Open with Xarray" >> beam.Map(
             _add_keys(open_with_xarray),
             file_type=self.file_type,
             load=self.load,
             copy_to_local=self.copy_to_local,
             xarray_open_kwargs=self.xarray_open_kwargs,
-        )
+        ).with_output_types(Tuple[Index, xr.Dataset])
 
 
 def _nest_dim(item: Indexed[T], dimension: Dimension) -> Indexed[Indexed[T]]:
@@ -310,7 +310,9 @@ class DetermineSchema(beam.PTransform):
 
     combine_dims: List[Dimension]
 
-    def expand(self, pcoll: beam.PCollection) -> beam.PCollection:
+    def expand(
+        self, pcoll: beam.PCollection[Tuple[Index, xr.Dataset]]
+    ) -> beam.PCollection[XarraySchema]:
         schemas = pcoll | beam.Map(_add_keys(dataset_to_schema))
         cdims = self.combine_dims.copy()
         while len(cdims) > 0:
@@ -323,7 +325,9 @@ class DetermineSchema(beam.PTransform):
                     schemas
                     | f"Nest {last_dim.name}" >> _NestDim(last_dim)
                     | f"Combine {last_dim.name}"
-                    >> beam.CombinePerKey(CombineXarraySchemas(last_dim))
+                    >> beam.CombinePerKey(CombineXarraySchemas(last_dim)).with_output_types(
+                        XarraySchema
+                    )
                 )
         return schemas
 
@@ -332,10 +336,12 @@ class DetermineSchema(beam.PTransform):
 class IndexItems(beam.PTransform):
     """Augment dataset indexes with information about start and stop position."""
 
-    schema: beam.PCollection
+    schema: beam.PCollection[XarraySchema]
 
-    @staticmethod
-    def index_item(item: Indexed[T], schema: XarraySchema) -> Indexed[T]:
+    # @staticmethod
+    def index_item(
+        self, item: Tuple[Index, xr.Dataset], schema: XarraySchema
+    ) -> Tuple[Index, xr.Dataset]:
         index, ds = item
         new_index = Index()
         for dimkey, dimval in index.items():
@@ -348,8 +354,10 @@ class IndexItems(beam.PTransform):
 
     def expand(
         self, pcoll: beam.PCollection[Tuple[Index, xr.Dataset]]
-    ) -> beam.PCollection[Indexed[T]]:
-        return pcoll | beam.Map(self.index_item, schema=beam.pvalue.AsSingleton(self.schema))
+    ) -> beam.PCollection[Tuple[Index, xr.Dataset]]:
+        return pcoll | beam.Map(
+            self.index_item, schema=beam.pvalue.AsSingleton(self.schema)
+        ).with_output_types(Tuple[Index, xr.Dataset])
 
 
 @dataclass
@@ -429,13 +437,15 @@ class NoSchemaRechunk(beam.PTransform):
     target_chunks: Optional[Dict[str, int]]
     # schema: beam.PCollection
 
-    def expand(self, pcoll: beam.PCollection) -> beam.PCollection:
+    def expand(
+        self, pcoll: beam.PCollection[Tuple[Index, xr.Dataset]]
+    ) -> beam.PCollection[Tuple[Index, xr.Dataset]]:
         new_fragments = (
             pcoll
-            | beam.FlatMap(split_fragment, target_chunks=self.target_chunks, schema=None)
-            | beam.GroupByKey().with_input_types(
-                Tuple[CodedGroupKey, Tuple[Index, xr.Dataset]]
-            )  # this has major performance implication
+            | beam.FlatMap(
+                split_fragment, target_chunks=self.target_chunks, schema=None
+            ).with_output_types(Tuple[CodedGroupKey, Tuple[Index, xr.Dataset]])
+            | beam.GroupByKey()  # this has major performance implication
             | beam.MapTuple(combine_fragments)
         )
         return new_fragments
@@ -657,7 +667,12 @@ class StoreToZarr(beam.PTransform, ZarrWriterMixin):
             attrs=self.attrs,
             store_mode=self.store_mode,
         )
-        (rechunked_datasets | StoreDatasetFragments(target_store=target_store))
+        (
+            rechunked_datasets
+            | StoreDatasetFragments(target_store=target_store).with_output_types(
+                zarr.storage.FSStore
+            )
+        )
         return
         # singleton_target_store = (
         #    n_target_stores
