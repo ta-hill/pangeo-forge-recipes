@@ -23,7 +23,7 @@ from .openers import open_url, open_with_kerchunk, open_with_xarray
 from .patterns import CombineOp, Dimension, FileType, Index, augment_index_with_start_stop
 from .rechunking import combine_fragments, split_fragment
 from .storage import CacheFSSpecTarget, FSSpecTarget
-from .types import CodedGroupItem, CodedGroupItemCoder, CodedGroupKey
+from .types import CodedGroupKey
 from .writers import ZarrWriterMixin, store_dataset_fragment, write_combined_reference
 
 logger = logging.getLogger(__name__)
@@ -69,7 +69,7 @@ IndexedReturn = Tuple[Index, R]
 
 P = ParamSpec("P")
 
-beam.coders.registry.register_coder(CodedGroupItem, CodedGroupItemCoder)
+# beam.coders.registry.register_coder(CodedGroupItem, CodedGroupItemCoder)
 
 
 class RequiredAtRuntimeDefault:
